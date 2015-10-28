@@ -15,13 +15,13 @@
 //    as pointer array of StructureAtom's
 struct StructureAtom {
     // Cartesian position, units: A
-    double * restrict x;
-    double * restrict y;
-    double * restrict z;
+    double * RESTRICT x;
+    double * RESTRICT y;
+    double * RESTRICT z;
     // Lennard-Jones epsilon parameter with adsorbate
-    double * restrict epsilon;  // units: K
+    double * RESTRICT epsilon;  // units: K
     // Lennard-Jones sigma parameter with adsorbate
-    double * restrict sigma;  // units: A
+    double * RESTRICT sigma;  // units: A
 };
 
 // temperature, Kelvin
@@ -35,7 +35,7 @@ const double R = 8.314;
 //   Find nearest image to methane at point (x, y, z) for application of periodic boundary conditions
 //   Compute energy contribution due to this atom via the Lennard-Jones potential
 double ComputeBoltzmannFactorAtPoint(const double x, const double y, const double z,
-                                     const StructureAtom const & structureatoms,
+                                     const StructureAtom & structureatoms,
                                      const int natoms, const double L)
 {
     // Jeff: const-qualified arguments are shared (OpenMP 4.0, 2.14.1.2).
