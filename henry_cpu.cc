@@ -6,7 +6,9 @@
 #include <cstdlib>
 #include <sstream>
 #include <map>
-#include<random>
+#include <random>
+
+#include <omp.h>
 
 #include <omp.h>
 
@@ -80,7 +82,8 @@ double ComputeBoltzmannFactorAtPoint(double x, double y, double z,
 // Inserts a methane molecule at a random position inside the structure
 // Calls function to compute Boltzmann factor at this point
 // Stores Boltzmann factor computed at this thread in deviceBoltzmannFactors
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     // take in number of MC insertions as argument
     if (argc != 2) {
         printf("Run as:\n./henry ninsertions\nwhere ninsertions = Number of MC insertions / (256 * 64) to correspond to CUDA code");
@@ -179,6 +182,8 @@ int main(int argc, char *argv[]) {
 //    std::mt19937 generator(seed);  // Mersenne Twister algo
     std::uniform_real_distribution<double> uniform01(0.0, 1.0); // uniformly distributed real no in [0,1]
 
+    double t0 = omp_get_wtime();
+
     //
     //  Compute the Henry coefficient in parallel
     //  KH = < e^{-E/(kB * T)} > / (R * T)
@@ -197,10 +202,17 @@ int main(int argc, char *argv[]) {
                                        natoms,
                                        L);
     }
+
+    double t1 = omp_get_wtime();
+    double dt = t1-t0;
+
     // KH = < e^{-E/(kB/T)} > / (RT)
     KH = KH / (ninsertions * R * T);
     printf("Henry constant = %e mol/(m3 - Pa)\n", KH);
     printf("Number of insertions: %d\n", ninsertions);
-    
+    printf("Number of insertions per second: %lf\n", ninsertions/dt);
+    // compare to http://devblogs.nvidia.com/parallelforall/accelerating-materials-discovery-cuda/
+    printf("FOM: %lf\n", ninsertions/dt/10000);
+
     return EXIT_SUCCESS;
 }
