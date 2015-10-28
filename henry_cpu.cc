@@ -8,6 +8,8 @@
 #include <map>
 #include<random>
 
+#include <omp.h>
+
 // data for atom of crystal structure
 //    Unit cell of crystal structure can then be stored 
 //    as pointer array of StructureAtom's
