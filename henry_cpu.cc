@@ -86,6 +86,8 @@ int main(int argc, char *argv[]) {
     }
     int ninsertions = atoi(argv[1]) * 256 * 64;  // Number of Monte Carlo insertions
 
+    printf("Running on %d threads\n", omp_get_max_threads());
+
     //
     // Energetic model for interactions of methane molecule with atoms of framework
     //    pairwise Lennard-Jones potentials
