@@ -46,8 +46,6 @@ double ComputeBoltzmannFactorAtPoint(const double x, const double y, const doubl
     // L : box length
     double E = 0.0;
 
-    // Jeff: This would greatly benefit from AoS-to-SoA transformation...
-
     // loop over atoms in crystal structure
     #ifdef THREAD_INNER_LOOP
     #pragma omp parallel for simd reduction(+:E) default(none) shared(structureatoms)
