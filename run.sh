@@ -6,8 +6,8 @@
 #echo "GPUkernelcalls,time" > GPU_performance.csv
 echo "EquivalentGPUkernelcalls,time" > OpenMP_performance.csv
 
-#export OMP_NUM_THREADS=24
-#echo "Running with $OMP_NUM_THREADS OpenMP threads"
+export OMP_NUM_THREADS=4
+echo "Running with $OMP_NUM_THREADS OpenMP threads"
 
 # Run codes with varying numbers of Monte Carlo insertions, $n
 for n in `seq 1 10 500` ; do
@@ -23,10 +23,10 @@ for n in `seq 1 10 500` ; do
     ###
     # OpenMP code
     ###
-    #t=$({ time ./henry_cpu $n >/dev/null; } |& grep real | awk '{print $2}')
+    t=$({ time ./henry_cpu $n >/dev/null; } |& grep real | awk '{print $2}')
     time ./henry_cpu $n >/dev/null;
-    #echo -e "\tOpenMP run time: $t"
-    #echo "$n,$t" >> OpenMP_performance.csv  # write results to .csv
+    echo -e "\tOpenMP run time: $t"
+    echo "$n,$t" >> OpenMP_performance.csv  # write results to .csv
 
 done
 
