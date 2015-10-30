@@ -8,12 +8,8 @@
 #include <sstream>
 #include <map>
 
-#ifdef USE_MKL_RNG
 #include <cmath>
 #include <mkl_vsl.h>
-#else
-#include <random>
-#endif
 
 #include <omp.h>
 
@@ -129,6 +125,8 @@ int main(int argc, char *argv[])
         structureatoms.sigma[i]   = sigmas[element];
     }
 
+    const double boxupper =  0.5*L;
+    const double boxlower = -0.5*L;
 
     double t0 = omp_get_wtime();
 
@@ -140,55 +138,40 @@ int main(int argc, char *argv[])
     double KH = 0.0;  // will be Henry coefficient
     #pragma omp parallel default(none) firstprivate(L,natoms) shared(KH,structureatoms)
     {
-#ifdef USE_MKL_RNG
         VSLStreamStatePtr vslssp;
         vslNewStream(&vslssp,VSL_BRNG_SFMT19937,1);
         double * vrand = new double[3*ninsertions];
-        vdRngUniform(VSL_RNG_METHOD_UNIFORM_STD,vslssp,3*ninsertions,vrand,0.0,1.0);
-#else
-        const unsigned seed = std::chrono::system_clock::now().time_since_epoch().count() + omp_get_thread_num();
-        std::default_random_engine generator(seed);
-        std::uniform_real_distribution<double> uniform01(0.0, 1.0);
-#endif
+        vdRngUniform(VSL_RNG_METHOD_UNIFORM_STD,vslssp,3*ninsertions,vrand,0.0,L);
         #pragma omp for reduction (+:KH)
         for (int i = 0; i < ninsertions; i++) {
             // generate random position in structure
-#ifdef USE_MKL_RNG
-            const double x = L * vrand[3*i+0];
-            const double y = L * vrand[3*i+1];
-            const double z = L * vrand[3*i+2];
-#else
-            const double x = L * uniform01(generator);
-            const double y = L * uniform01(generator);
-            const double z = L * uniform01(generator);
-#endif
+            const double x = vrand[i];
+            const double y = vrand[ninsertions+i];
+            const double z = vrand[2*ninsertions+i];
             // compute Boltzmann factor
             double E = 0.0;
             #pragma omp simd reduction(+:E)
-            for (int i = 0; i < natoms; i++) {
-                double dx = x - structureatoms.x[i];
-                double dy = y - structureatoms.y[i];
-                double dz = z - structureatoms.z[i];
-                const double boxupper =  0.5*L;
-                const double boxlower = -0.5*L;
+            for (int j = 0; j < natoms; j++) {
+                double dx = x - structureatoms.x[j];
+                double dy = y - structureatoms.y[j];
+                double dz = z - structureatoms.z[j];
+                double si =     structureatoms.sigma[j];
+                double ep =     structureatoms.epsilon[j];
                 dx = (dx >  boxupper) ? dx-L : dx;
                 dx = (dx >  boxupper) ? dx-L : dx;
                 dy = (dy >  boxupper) ? dy-L : dy;
                 dy = (dy <= boxlower) ? dy-L : dy;
                 dz = (dz <= boxlower) ? dz-L : dz;
                 dz = (dz <= boxlower) ? dz-L : dz;
-                double r = sqrt(dx*dx + dy*dy + dz*dz);
-                const double sas   = structureatoms.sigma[i] / r;
+                const double sas   = si / sqrt(dx*dx + dy*dy + dz*dz);
                 const double sas6  = pow(sas,6);
                 const double sas12 = sas6*sas6;
-                E += 4 * structureatoms.epsilon[i] * (sas12-sas6);
+                E += 4 * ep * (sas12-sas6);
             }
             KH += exp(-E / (R * T));
         }
-#ifdef USE_MKL_RNG
         delete[] vrand;
         vslDeleteStream(&vslssp);
-#endif
     }
 
     double t1 = omp_get_wtime();
