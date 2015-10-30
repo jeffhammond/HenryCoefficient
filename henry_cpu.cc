@@ -1,12 +1,19 @@
-#include <stdio.h>
-#include <chrono>
-#include <stdlib.h>
-#include <string>
-#include <fstream>
+#include <cstdio>
 #include <cstdlib>
+
+#include <chrono>
+#include <string>
+#include <iostream>
+#include <fstream>
 #include <sstream>
 #include <map>
+
+#ifdef USE_MKL_RNG
+#include <cmath>
+#include <mkl_vsl.h>
+#else
 #include <random>
+#endif
 
 #include <omp.h>
 
@@ -29,59 +36,6 @@ const double T = 298.0;
 
 // Universal gas constant, m3 - Pa / (K - mol)
 const double R = 8.314;
-
-// Compute the Boltzmann factor of methane at point (x, y, z) inside structure
-//   Loop over all atoms of unit cell of crystal structure
-//   Find nearest image to methane at point (x, y, z) for application of periodic boundary conditions
-//   Compute energy contribution due to this atom via the Lennard-Jones potential
-double ComputeBoltzmannFactorAtPoint(const double x, const double y, const double z,
-                                     const StructureAtom & structureatoms,
-                                     const int natoms, const double L)
-{
-    // Jeff: const-qualified arguments are shared (OpenMP 4.0, 2.14.1.2).
-
-    // (x, y, z) : Cartesian coords of methane molecule
-    // structureatoms : pointer array storing info on unit cell of crystal structure
-    // natoms : number of atoms in crystal structure
-    // L : box length
-    double E = 0.0;
-
-    // loop over atoms in crystal structure
-    #ifdef THREAD_INNER_LOOP
-    #pragma omp parallel for simd reduction(+:E) default(none) shared(structureatoms)
-    #else
-    #pragma omp simd
-    #endif
-    for (int i = 0; i < natoms; i++) {
-        //  Compute distance from (x, y, z) to this atom
-
-        // compute distances in each coordinate
-        double dx = x - structureatoms.x[i];
-        double dy = y - structureatoms.y[i];
-        double dz = z - structureatoms.z[i];
-
-        // apply nearest image convention for periodic boundary conditions
-        const double boxupper =  0.5*L;
-        const double boxlower = -0.5*L;
-        dx = (dx >  boxupper) ? dx-L : dx;
-        dx = (dx >  boxupper) ? dx-L : dx;
-        dy = (dy >  boxupper) ? dy-L : dy;
-        dy = (dy <= boxlower) ? dy-L : dy;
-        dz = (dz <= boxlower) ? dz-L : dz;
-        dz = (dz <= boxlower) ? dz-L : dz;
-
-        // distance
-        double r = sqrt(dx*dx + dy*dy + dz*dz);
-
-        // Compute contribution to energy of adsorbate at (x, y, z) due to this atom
-        // Lennard-Jones potential (not efficient, but for clarity)
-        const double sas   = structureatoms.sigma[i] / r;
-        const double sas6  = pow(sas,6);
-        const double sas12 = sas6*sas6;
-        E += 4 * structureatoms.epsilon[i] * (sas12-sas6);
-    }
-    return exp(-E / (R * T));  // return Boltzmann factor
-}
 
 // Inserts a methane molecule at a random position inside the structure
 // Calls function to compute Boltzmann factor at this point
@@ -175,10 +129,6 @@ int main(int argc, char *argv[])
         structureatoms.sigma[i]   = sigmas[element];
     }
 
-    //
-    // Set up random number generator
-    //
-    const unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 
     double t0 = omp_get_wtime();
 
@@ -188,24 +138,57 @@ int main(int argc, char *argv[])
     //  Brackets denote average over space
     //
     double KH = 0.0;  // will be Henry coefficient
-    #ifdef THREAD_OUTER_LOOP
-    #pragma omp parallel default(none) firstprivate(L,natoms,seed) shared(KH,structureatoms)
-    #endif
+    #pragma omp parallel default(none) firstprivate(L,natoms) shared(KH,structureatoms)
     {
-        std::default_random_engine generator(seed);  // default
-        std::uniform_real_distribution<double> uniform01(0.0, 1.0); // uniformly distributed real no in [0,1]
-
-        #ifdef THREAD_OUTER_LOOP
+#ifdef USE_MKL_RNG
+        VSLStreamStatePtr vslssp;
+        vslNewStream(&vslssp,VSL_BRNG_SFMT19937,1);
+        double * vrand = new double[3*ninsertions];
+        vdRngUniform(VSL_RNG_METHOD_UNIFORM_STD,vslssp,3*ninsertions,vrand,0.0,1.0);
+#else
+        const unsigned seed = std::chrono::system_clock::now().time_since_epoch().count() + omp_get_thread_num();
+        std::default_random_engine generator(seed);
+        std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+#endif
         #pragma omp for reduction (+:KH)
-        #endif
         for (int i = 0; i < ninsertions; i++) {
             // generate random position in structure
-            double x = L * uniform01(generator);
-            double y = L * uniform01(generator);
-            double z = L * uniform01(generator);
+#ifdef USE_MKL_RNG
+            const double x = L * vrand[3*i+0];
+            const double y = L * vrand[3*i+1];
+            const double z = L * vrand[3*i+2];
+#else
+            const double x = L * uniform01(generator);
+            const double y = L * uniform01(generator);
+            const double z = L * uniform01(generator);
+#endif
             // compute Boltzmann factor
-            KH += ComputeBoltzmannFactorAtPoint(x, y, z, structureatoms, natoms, L);
+            double E = 0.0;
+            #pragma omp simd reduction(+:E)
+            for (int i = 0; i < natoms; i++) {
+                double dx = x - structureatoms.x[i];
+                double dy = y - structureatoms.y[i];
+                double dz = z - structureatoms.z[i];
+                const double boxupper =  0.5*L;
+                const double boxlower = -0.5*L;
+                dx = (dx >  boxupper) ? dx-L : dx;
+                dx = (dx >  boxupper) ? dx-L : dx;
+                dy = (dy >  boxupper) ? dy-L : dy;
+                dy = (dy <= boxlower) ? dy-L : dy;
+                dz = (dz <= boxlower) ? dz-L : dz;
+                dz = (dz <= boxlower) ? dz-L : dz;
+                double r = sqrt(dx*dx + dy*dy + dz*dz);
+                const double sas   = structureatoms.sigma[i] / r;
+                const double sas6  = pow(sas,6);
+                const double sas12 = sas6*sas6;
+                E += 4 * structureatoms.epsilon[i] * (sas12-sas6);
+            }
+            KH += exp(-E / (R * T));
         }
+#ifdef USE_MKL_RNG
+        delete[] vrand;
+        vslDeleteStream(&vslssp);
+#endif
     }
 
     double t1 = omp_get_wtime();
